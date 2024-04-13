@@ -1,0 +1,111 @@
+import os
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+from flask import Flask, request, make_response
+
+app = Flask(__name__)
+client = WebClient(token=os.environ["SLACK_BOT_TOKEN"])
+
+@app.route("/slack/events", methods=["POST"])
+def handle_slack_events():
+    slack_event = request.json
+    if "challenge" in slack_event:
+        return make_response(slack_event["challenge"], 200, {"content_type": "application/json"})
+
+    if "event" in slack_event:
+        event_type = slack_event["event"]["type"]
+        if event_type == "app_mention":
+            handle_app_mention(slack_event)
+        elif event_type == "interactive_message":
+            handle_interactive_message(slack_event)
+        elif event_type == "view_submission":
+            handle_view_submission(slack_event)
+
+    return make_response("", 200)
+
+def handle_app_mention(event):
+    try:
+        client.chat_postMessage(
+            channel=event["event"]["channel"],
+            text="Click the button to open the modal form.",
+            blocks=[
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Open Modal"
+                            },
+                            "value": "open_modal",
+                            "action_id": "open_modal"
+                        }
+                    ]
+                }
+            ]
+        )
+    except SlackApiError as e:
+        print(f"Error posting message: {e}")
+
+def handle_interactive_message(event):
+    trigger_id = event["trigger_id"]
+    try:
+        client.views_open(
+            trigger_id=trigger_id,
+            view={
+                "type": "modal",
+                "callback_id": "project_form",
+                "title": {
+                    "type": "plain_text",
+                    "text": "Project Details"
+                },
+                "submit": {
+                    "type": "plain_text",
+                    "text": "Submit"
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "Cancel"
+                },
+                "blocks": [
+                    {
+                        "type": "input",
+                        "block_id": "project_title",
+                        "label": {
+                            "type": "plain_text",
+                            "text": "Project Title"
+                        },
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "title_input"
+                        }
+                    },
+                    {
+                        "type": "input",
+                        "block_id": "project_notes",
+                        "label": {
+                            "type": "plain_text",
+                            "text": "Notes"
+                        },
+                        "element": {
+                            "type": "plain_text_input",
+                            "multiline": True,
+                            "action_id": "notes_input"
+                        }
+                    }
+                ]
+            }
+        )
+    except SlackApiError as e:
+        print(f"Error opening modal: {e}")
+
+def handle_view_submission(event):
+    submitted_data = event["view"]["state"]["values"]
+    project_title = submitted_data["project_title"]["title_input"]["value"]
+    project_notes = submitted_data["project_notes"]["notes_input"]["value"]
+    print(f"Project Title: {project_title}")
+    print(f"Notes: {project_notes}")
+
+if __name__ == "__main__":
+    app.run(debug=True)
